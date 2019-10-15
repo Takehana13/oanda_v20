@@ -1,28 +1,22 @@
 OANDA_V20 <- R6Class(
   "OANDA_V20",
   public = list(
-    symbol_name = NULL, account_type = NULL, strat_magic = NULL,
+    symbol_name = NULL, strat_magic = NULL,
+    account_type = NULL, account_id = NULL, access_token = NULL,
     v20 = NULL, api = NULL, accounts = NULL, instruments = NULL,
-    account_id = NULL, access_token = NULL,
     orders = NULL, requests = NULL, trades = NULL,
     # init ----
     initialize = function(symbol_name = "USD_JPY",
-                          account_type = "practice",
+                          account_type = NA, account_id = NA, access_token = NA,
                           strat_magic = "777"){
-      pacman::p_load(rlang, tidyverse, lubridate, reticulate, rlist, pipeR, plotly)
+      pacman::p_load(rlang, tidyverse, lubridate, reticulate, rlist, pipeR, plotly, R6)
       
       self$symbol_name = symbol_name
       self$account_type = account_type
+      self$account_id = account_id
+      self$access_token = access_token
       self$strat_magic = strat_magic
       
-      if(self$account_type == "real"){
-        self$account_id <- "your_real_account_id"
-        self$access_token <- "your_real_account_access_token"
-      }
-      if(self$account_type == "practice"){
-        self$access_token <- "your_practice_access_token"
-        self$account_id <- "your_practice_account_id" 
-      }
       # python obj
       use_python("/cloud/project/r-reticulate/bin/python3")
       py_discover_config()
