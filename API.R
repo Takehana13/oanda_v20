@@ -317,7 +317,7 @@ OANDA_V20 <- R6Class(
         stop("no position")
       }
     },
-    # cancel all pending position ----
+    # cancel all pending order ----
     cancel_all = function(magic = self$strat_magic){
       if(order_cnt != 0){
         rs <- seq_len(self$order_cnt) %>% 
