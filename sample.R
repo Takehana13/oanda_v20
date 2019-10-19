@@ -1,3 +1,4 @@
+pacman::p_load(rlang, tidyverse, lubridate, reticulate, rlist, pipeR, plotly, R6, downloader)
 # get github code ----
 git <- "https://raw.githubusercontent.com/Takehana13/"
 path <- paste0(git, "oanda_v20/master/API.R")
