@@ -1,25 +1,27 @@
+pacman::p_load(rlang, tidyverse, lubridate, reticulate, rlist, pipeR, plotly, R6)
 OANDA_V20 <- R6Class(
   "OANDA_V20",
   public = list(
     symbol_name = NULL, strat_magic = NULL,
     account_type = NULL, account_id = NULL, access_token = NULL,
-    v20 = NULL, api = NULL, accounts = NULL, instruments = NULL,
+    python_path = NULL, v20 = NULL, api = NULL,
+    accounts = NULL, instruments = NULL,
     orders = NULL, requests = NULL, trades = NULL,
     # init ----
-    initialize = function(symbol_name = "USD_JPY",
-                          account_type = NA, account_id = NA, access_token = NA,
-                          strat_magic = "777"){
-      pacman::p_load(rlang, tidyverse, lubridate, reticulate, rlist, pipeR, plotly, R6)
+    initialize = function(
+      symbol_name = "USD_JPY", strat_magic = "777",
+      account_type = NA, account_id = NA, access_token = NA,
+      python_path = NA
+      ){
       
-      self$symbol_name = symbol_name
-      self$account_type = account_type
-      self$account_id = account_id
-      self$access_token = access_token
-      self$strat_magic = strat_magic
+      self$symbol_name <- symbol_name
+      self$account_type <- account_type
+      self$account_id <- account_id
+      self$access_token <- access_token
+      self$strat_magic <- strat_magic
       
       # python obj
-      use_python("/cloud/project/r-reticulate/bin/python3")
-      py_discover_config()
+      use_python(python_path)
       py_install("oandapyV20")
       
       self$v20 <- import("oandapyV20")
@@ -33,6 +35,7 @@ OANDA_V20 <- R6Class(
     # instruments info ----
     pip_value = NULL,
     tick_value = NULL,
+    instrument_lst = NULL,
     get_instrument = function(){
       r <- self$accounts$AccountInstruments(accountID = self$account_id)
       rv <- self$api$request(r)
@@ -42,6 +45,7 @@ OANDA_V20 <- R6Class(
         list.map(pipLocation)
       self$pip_value <- if_else(pv == -2, 100, if_else(pv == -4, 10000, 0))
       self$tick_value <- if_else(pv == -2, 0.01, if_else(pv == -4, 0.0001, 0))
+      self$instrument_lst <- rv
     },
     # price data ----
     price_data = NULL,
@@ -81,6 +85,7 @@ OANDA_V20 <- R6Class(
     # plot price data ----
     plt_data = function(){
       self$price_data %>% 
+        tail(30) %>% 
         plot_ly(x = ~dttm, type="candlestick",
                 open = ~open, close = ~close,
                 high = ~high, low = ~low) %>%
@@ -118,21 +123,21 @@ OANDA_V20 <- R6Class(
         geom_line() +
         theme_tq()
     },
-    # account summary data ----
+    # account info summary  ----
     account_summary = NULL,
     get_account_summary = function(){
       r <- self$accounts$AccountSummary(accountID = account_id)
       rv <- self$api$request(r)
       self$account_summary <- rv$account
     },
-    # account detail data ----
+    # account info detail ----
     account_orders = NULL,
     account_trades = NULL,
     account_positions = NULL,
     account_detail = NULL,
     get_account_detail = function(){
-      r <- accounts$AccountDetails(accountID = account_id)
-      rv <- api$request(r)
+      r <- self$accounts$AccountDetails(accountID = account_id)
+      rv <- self$api$request(r)
       
       self$account_orders <- rv$account$order
       self$account_trades <- rv$account$trades 
@@ -140,7 +145,7 @@ OANDA_V20 <- R6Class(
       self$account_detail <- rv$account %>>%
         list.remove(c("trades", "orders", "positions"))
     },
-    # make new order ----
+    # send new order ----
     last_tiket_id = NULL,
     last_tiket_unit = NULL,
     magic_lst = NULL,
@@ -187,7 +192,7 @@ OANDA_V20 <- R6Class(
       self$magic_lst <- self$magic_lst %>% c(list(list(id = self$last_tiket_id, magic = magic)))
       self$trans_lst <- self$trans_lst %>% c(list(mkt = list(data = rv, magic = magic)))
     },
-    # close position ----
+    # send close order ----
     close_order = function(units = self$last_tiket_unit, trade_id = self$last_tiket_id,
                            magic = self$strat_magic){
       check_magic <- self$magic_lst %>>% 
@@ -205,7 +210,7 @@ OANDA_V20 <- R6Class(
         stop("wrong magic")
       }
     },
-    # make pending order ----
+    # send pending order ----
     last_order_id = NULL,
     pending_order = function(price = "111.000", units = "-10000", magic = self$strat_magic,
                              type = "LIMIT", pos_fill = "DEFAULT"){
@@ -257,7 +262,7 @@ OANDA_V20 <- R6Class(
         "wrong magic"
       }
     },
-    # get pending order info ----
+    # pending order info ----
     order_cnt = NULL,
     order_ids = NULL,
     get_order_info = function(symbol = self$symbol_name, all = F, magic = self$strat_magic){
@@ -277,7 +282,7 @@ OANDA_V20 <- R6Class(
       
       self$order_cnt <- self$order_ids %>>% list.count
     },
-    # get position info ----
+    # position info ----
     pos_cnt = NULL,
     pos_ids = NULL,
     amounts = NULL,
@@ -291,9 +296,11 @@ OANDA_V20 <- R6Class(
         self$pos_ids <- self$magic_lst %>>%
           list.filter(id %in% ids & magic %in% magic) %>>%
           list.map(id)
-      } else {self$pos_ids <- ids}
+      } else {
+        self$pos_ids <- ids
+      }
       self$pos_cnt <- self$pos_ids %>>% list.count
-      amounts <- pos_sym %>>%
+      self$amounts <- pos_sym %>>%
         list.filter(id %in% self$pos_ids) %>% 
         list.map(currentUnits %>% as.numeric %>% abs %>% as.character) %>% 
         map(~list(units = .x))
@@ -301,7 +308,7 @@ OANDA_V20 <- R6Class(
     # close all position ----
     trans_rec = NULL,
     close_all = function(magic = self$strat_magic){
-      if(pos_cnt != 0){
+      if(self$pos_cnt != 0){
         rs <- seq_len(self$pos_cnt) %>% 
           map(~self$trades$TradeClose(
             accountID = self$account_id,
@@ -310,7 +317,7 @@ OANDA_V20 <- R6Class(
           )
         self$trans_rec <- rs %>% map(self$api$request)
         
-        i <- magic_lst %>>% list.which(id %in% pos_ids & magic %in% magic)
+        i <- self$magic_lst %>>% list.which(id %in% self$pos_ids & magic %in% magic)
         self$magic_lst <- self$magic_lst %>>% list.remove(i)
         self$trans_lst <- self$trans_lst %>% c(list(close = list(data = self$trans_rec, magic = magic)))
       } else {
@@ -319,7 +326,7 @@ OANDA_V20 <- R6Class(
     },
     # cancel all pending order ----
     cancel_all = function(magic = self$strat_magic){
-      if(order_cnt != 0){
+      if(self$order_cnt != 0){
         rs <- seq_len(self$order_cnt) %>% 
           map(~orders$OrderCancel(
             accountID = self$account_id,
